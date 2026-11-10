@@ -29,7 +29,7 @@ import java.util.concurrent.Executor
 /// Hold the settings of the camera and use cases in this class and
 /// call updateLifecycle() to refresh the state
 data class CameraXState(
-    private var cameraProvider: ProcessCameraProvider,
+    var cameraProvider: ProcessCameraProvider,
     val textureEntries: Map<String, TextureRegistry.SurfaceTextureEntry>,
 //    var cameraSelector: CameraSelector,
     var sensors: List<PigeonSensor>,
@@ -193,8 +193,24 @@ data class CameraXState(
         } else {
             val useCaseGroupBuilder = UseCaseGroup.Builder()
             // Handle single camera
-            val cameraSelector =
-                if (sensors.first().position == PigeonSensorPosition.FRONT) CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
+            val sensor = sensors.first()
+            val cameraSelector = if (sensor.position == PigeonSensorPosition.FRONT) {
+                CameraSelector.DEFAULT_FRONT_CAMERA
+            } else {
+                if (sensor.deviceId != null && sensor.deviceId != "0" && sensor.deviceId != "logical_ultrawide") {
+                    CameraSelector.Builder()
+                        .requireLensFacing(CameraSelector.LENS_FACING_BACK)
+                        .addCameraFilter { cameraInfos ->
+                            val matching = cameraInfos.filter { info ->
+                                Camera2CameraInfo.from(info).cameraId == sensor.deviceId
+                            }
+                            if (matching.isNotEmpty()) matching else cameraInfos
+                        }
+                        .build()
+                } else {
+                    CameraSelector.DEFAULT_BACK_CAMERA
+                }
+            }
             // Preview
             if (currentCaptureMode != CaptureModes.ANALYSIS_ONLY) {
                 previews!!.add(
@@ -327,7 +343,11 @@ data class CameraXState(
         return Preview.SurfaceProvider { request: SurfaceRequest ->
             val resolution = request.resolution
             //Log.d("CameraX", "surfaceProvider -> Preview size: width=${resolution.width}, height=${resolution.height}")
-            val texture = textureEntries[cameraId]!!.surfaceTexture()
+            val textureEntry = textureEntries[cameraId]
+                ?: textureEntries["0"]
+                ?: textureEntries.values.firstOrNull()
+                ?: throw IllegalStateException("No surface texture found in textureEntries")
+            val texture = textureEntry.surfaceTexture()
             texture.setDefaultBufferSize(resolution.width, resolution.height)
             val surface = Surface(texture)
             request.provideSurface(surface, executor) {

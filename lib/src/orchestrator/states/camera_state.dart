@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:camerawesome/camerawesome_plugin.dart';
 import 'package:camerawesome/pigeon.dart';
 import 'package:camerawesome/src/orchestrator/camera_context.dart';
@@ -127,9 +129,12 @@ abstract class CameraState {
           .toList(),
       aspectRatio: previous.aspectRatio,
       flashMode: previous.flashMode,
-      zoom: previous.zoom,
+      zoom: type == SensorType.ultraWideAngle ? 0.0 : previous.zoom,
     );
     cameraContext.setSensorConfig(next);
+    if (type == SensorType.wideAngle && Platform.isAndroid) {
+      next.setZoomToOneX();
+    }
   }
 
   // PigeonSensorType? _sensorTypeFromPigeon(SensorType type) {

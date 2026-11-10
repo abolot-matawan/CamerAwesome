@@ -10,60 +10,81 @@ import com.apparence.camerawesome.cameraX.PigeonSensorPosition
 import com.apparence.camerawesome.cameraX.PigeonSensorType
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.sqrt
 
-// 35mm is 135 film format, a standard in which focal lengths are usually measured
-val Size35mm = Size(36, 24)
+// 35mm film format diagonal: sqrt(36^2 + 24^2) ≈ 43.2666mm
+const val DIAGONAL_35MM = 43.2666f
 
 /**
- * Convert a given array of focal lengths to the corresponding TypeScript union type name.
+ * Calculates the 35mm-equivalent focal length for the given camera.
+ */
+@ExperimentalCamera2Interop
+fun Camera2CameraInfo.getEquivalentFocalLength(): Float? {
+    val focalLengths = this.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+        ?: return null
+    val sensorSize = this.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+        ?: return null
+
+    if (sensorSize.width <= 0f || sensorSize.height <= 0f || focalLengths.isEmpty()) {
+        return null
+    }
+
+    val sensorDiagonal = sqrt(sensorSize.width * sensorSize.width + sensorSize.height * sensorSize.height)
+    if (sensorDiagonal <= 0f) return null
+
+    val cropFactor = DIAGONAL_35MM / sensorDiagonal
+    val focalLength = focalLengths.minOrNull() ?: return null
+    return focalLength * cropFactor
+}
+
+/**
+ * Converts focal lengths and sensor dimensions to the corresponding [PigeonSensorType].
  *
- * Possible values for single cameras:
- * * `"wide-angle-camera"`
- * * `"ultra-wide-angle-camera"`
- * * `"telephoto-camera"`
- *
- * Sources for the focal length categories:
- * * [Telephoto Lens (wikipedia)](https://en.wikipedia.org/wiki/Telephoto_lens)
- * * [Normal Lens (wikipedia)](https://en.wikipedia.org/wiki/Normal_lens)
- * * [Wide-Angle Lens (wikipedia)](https://en.wikipedia.org/wiki/Wide-angle_lens)
- * * [Ultra-Wide-Angle Lens (wikipedia)](https://en.wikipedia.org/wiki/Ultra_wide_angle_lens)
+ * * < 24mm : Ultra-Wide Angle
+ * * 24mm..45mm : Wide Angle (standard main camera)
+ * * > 45mm : Telephoto
  */
 @ExperimentalCamera2Interop
 fun Camera2CameraInfo.getSensorType(): PigeonSensorType {
-    val focalLengths =
-        this.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)!!
-    val sensorSize =
-        this.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)!!
-
-    // To get valid focal length standards we have to upscale to the 35mm measurement (film standard)
-    val cropFactor = Size35mm.bigger / sensorSize.bigger
-
-
-    val containsTelephoto =
-        focalLengths.any { l -> (l * cropFactor) > 35 } // TODO: Telephoto lenses are > 85mm, but we don't have anything between that range..
-    // val containsNormalLens = focalLengths.any { l -> (l * cropFactor) > 35 && (l * cropFactor) <= 55 }
-    val containsWideAngle =
-        focalLengths.any { l -> (l * cropFactor) >= 24 && (l * cropFactor) <= 35 }
-    val containsUltraWideAngle = focalLengths.any { l -> (l * cropFactor) < 24 }
-
-    if (containsTelephoto)
-        return PigeonSensorType.TELEPHOTO
-    if (containsWideAngle)
-        return PigeonSensorType.WIDEANGLE
-    if (containsUltraWideAngle)
-        return PigeonSensorType.ULTRAWIDEANGLE
-    return PigeonSensorType.UNKNOWN
+    val eqFocal = getEquivalentFocalLength() ?: return PigeonSensorType.UNKNOWN
+    return when {
+        eqFocal < 24f -> PigeonSensorType.ULTRAWIDEANGLE
+        eqFocal in 24f..45f -> PigeonSensorType.WIDEANGLE
+        eqFocal > 45f -> PigeonSensorType.TELEPHOTO
+        else -> PigeonSensorType.UNKNOWN
+    }
 }
 
 @ExperimentalCamera2Interop
 fun Camera2CameraInfo.getPigeonPosition(): PigeonSensorPosition {
-    val facing = this.getCameraCharacteristic(CameraCharacteristics.LENS_FACING)!!
+    val facing = this.getCameraCharacteristic(CameraCharacteristics.LENS_FACING)
     return if (facing == LENS_FACING_BACK)
         PigeonSensorPosition.BACK
     else
         PigeonSensorPosition.FRONT
 }
 
+@ExperimentalCamera2Interop
+fun Camera2CameraInfo.getIso(): Double {
+    val sensitivityRange = this.getCameraCharacteristic(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)
+    return sensitivityRange?.upper?.toDouble() ?: 0.0
+}
+
+@ExperimentalCamera2Interop
+fun Camera2CameraInfo.hasFlash(): Boolean {
+    return this.getCameraCharacteristic(CameraCharacteristics.FLASH_INFO_AVAILABLE) ?: false
+}
+
+@ExperimentalCamera2Interop
+fun Camera2CameraInfo.getMinZoomRatio(): Float {
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+        val range = this.getCameraCharacteristic(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE)
+        if (range != null) {
+            return range.lower
+        }
+    }
+    return 1.0f
+}
 
 val Size.bigger: Int
     get() = max(this.width, this.height)

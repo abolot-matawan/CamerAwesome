@@ -80,6 +80,14 @@ class _AwesomeCameraGestureDetector
   }
 
   @override
+  void didUpdateWidget(covariant AwesomeCameraGestureDetector oldWidget) {
+    if (oldWidget.initialZoom != widget.initialZoom) {
+      _zoomScale = widget.initialZoom;
+    }
+    super.didUpdateWidget(oldWidget);
+  }
+
+  @override
   Widget build(BuildContext context) {
     return RawGestureDetector(
       gestures: <Type, GestureRecognizerFactory>{
@@ -89,6 +97,7 @@ class _AwesomeCameraGestureDetector
             () => ScaleGestureRecognizer()
               ..onStart = (_) {
                 _lastScale = null;
+                _zoomScale = widget.initialZoom;
               }
               ..onUpdate = (ScaleUpdateDetails details) {
                 _lastScale ??= details.scale;

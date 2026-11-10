@@ -97,6 +97,50 @@ class SensorConfig {
     if (!_zoomController.isClosed) {
       _zoomController.sink.add(zoom);
     }
+    if (Platform.isAndroid && !_sensorTypeController.isClosed) {
+      final minZoom = await CamerawesomePlugin.getMinZoom();
+      final maxZoom = await CamerawesomePlugin.getMaxZoom();
+      if (minZoom != null && maxZoom != null && maxZoom > minZoom) {
+        final ratio = minZoom + (maxZoom - minZoom) * zoom;
+        if (ratio < 0.99 &&
+            _sensorTypeController.value != SensorType.ultraWideAngle) {
+          _sensorTypeController.sink.add(SensorType.ultraWideAngle);
+        } else if (ratio >= 0.99 &&
+            ratio < 1.99 &&
+            _sensorTypeController.value != SensorType.wideAngle) {
+          _sensorTypeController.sink.add(SensorType.wideAngle);
+        } else if (ratio >= 1.99 &&
+            _sensorTypeController.value != SensorType.telephoto) {
+          _sensorTypeController.sink.add(SensorType.telephoto);
+        }
+      }
+    }
+  }
+
+  /// Sets the zoom using an optical zoom ratio (e.g. 0.5, 1.0, 2.0).
+  /// Maps the ratio to normalized linear zoom [0.0, 1.0].
+  Future<void> setZoomRatio(double ratio) async {
+    final minZoom = await CamerawesomePlugin.getMinZoom();
+    final maxZoom = await CamerawesomePlugin.getMaxZoom();
+    if (minZoom == null || maxZoom == null || maxZoom <= minZoom) {
+      return;
+    }
+    final clampedRatio = ratio.clamp(minZoom, maxZoom);
+    final normalized = ((clampedRatio - minZoom) / (maxZoom - minZoom))
+        .clamp(0.0, 1.0)
+        .toDouble();
+    await setZoom(normalized);
+  }
+
+  /// Returns the current zoom as an optical ratio (e.g. 0.5, 1.0, 2.0),
+  /// or null if min/max zoom cannot be retrieved.
+  Future<double?> getZoomRatio() async {
+    final minZoom = await CamerawesomePlugin.getMinZoom();
+    final maxZoom = await CamerawesomePlugin.getMaxZoom();
+    if (minZoom == null || maxZoom == null || maxZoom <= minZoom) {
+      return null;
+    }
+    return minZoom + (maxZoom - minZoom) * zoom;
   }
 
   /// Returns the current zoom without stream

@@ -1,9 +1,6 @@
-import 'dart:io';
-
 import 'package:camerawesome/camerawesome_plugin.dart';
 import 'package:camerawesome/src/widgets/filters/awesome_filter_name_indicator.dart';
 import 'package:camerawesome/src/widgets/filters/awesome_filter_selector.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 enum FilterListPosition {
@@ -84,18 +81,11 @@ class _AwesomeFilterWidgetState extends State<AwesomeFilterWidget> {
                             child:
                                 AwesomeFilterNameIndicator(state: widget.state),
                           )
-                        : (!kIsWeb &&
-                                Platform
-                                    .isAndroid) // FIXME this should not be here and makes the code ugly
-                            ? Center(
-                                key: const ValueKey("ZoomIndicator"),
-                                child: AwesomeZoomSelector(state: widget.state),
-                              )
-                            : Center(
-                                key: const ValueKey("SensorTypeSelector"),
-                                child: AwesomeSensorTypeSelector(
-                                    state: widget.state),
-                              ),
+                        : Center(
+                            key: const ValueKey("SensorTypeSelector"),
+                            child: AwesomeSensorTypeSelector(
+                                state: widget.state),
+                          ),
                   );
                 },
               ),

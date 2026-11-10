@@ -13,6 +13,7 @@ import android.util.Log
 import android.util.Rational
 import android.util.Size
 import androidx.camera.camera2.Camera2Config
+import androidx.camera.camera2.interop.Camera2CameraInfo
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -28,7 +29,7 @@ import com.apparence.camerawesome.buttons.PhysicalButtonsHandler
 import com.apparence.camerawesome.buttons.PlayerService
 import com.apparence.camerawesome.models.FlashMode
 import com.apparence.camerawesome.sensors.SensorOrientationListener
-import com.apparence.camerawesome.utils.isMultiCamSupported
+import com.apparence.camerawesome.utils.*
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -145,7 +146,8 @@ class CameraAwesomeX : CameraInterface, FlutterPlugin, ActivityAware {
         val cameraProvider = getCameraProvider()
 
         val mode = CaptureModes.valueOf(captureMode)
-        cameraState = CameraXState(cameraProvider = cameraProvider,
+        cameraState = CameraXState(
+            cameraProvider = cameraProvider,
             textureEntries = sensors.mapIndexed { index: Int, pigeonSensor: PigeonSensor ->
                 (pigeonSensor.deviceId
                     ?: index.toString()) to textureRegistry!!.createSurfaceTexture()
@@ -168,7 +170,12 @@ class CameraAwesomeX : CameraInterface, FlutterPlugin, ActivityAware {
         if (mode != CaptureModes.ANALYSIS_ONLY) {
             cameraState.updateLifecycle(activity!!)
             // Zoom should be set after updateLifeCycle
-            if (zoom > 0) {
+            val firstSensor = sensors.firstOrNull()
+            if (firstSensor?.deviceId == "logical_ultrawide" || firstSensor?.type == PigeonSensorType.ULTRAWIDEANGLE) {
+                Handler(Looper.getMainLooper()).postDelayed({
+                    cameraState.setZoom(0.0f)
+                }, 200)
+            } else if (zoom > 0) {
                 // TODO Find a better way to set initial zoom than using a postDelayed
                 Handler(Looper.getMainLooper()).postDelayed({
                     cameraState.setZoom(zoom.toFloat())
@@ -381,7 +388,8 @@ class CameraAwesomeX : CameraInterface, FlutterPlugin, ActivityAware {
             ImageCapture.OutputFileOptions.Builder(imageFile).setMetadata(metadata).build()
 //        for (imageCapture in cameraState.imageCaptures) {
         imageCapture.targetRotation = orientationStreamListener!!.surfaceOrientation
-        imageCapture.takePicture(outputFileOptions,
+        imageCapture.takePicture(
+            outputFileOptions,
             ContextCompat.getMainExecutor(activity!!),
             object : ImageCapture.OnImageSavedCallback {
                 override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
@@ -512,7 +520,8 @@ class CameraAwesomeX : CameraInterface, FlutterPlugin, ActivityAware {
                     }
                 }
                 videoCapture.targetRotation = orientationStreamListener!!.surfaceOrientation
-                cameraState.recordings!!.add(videoCapture.output.prepareRecording(
+                cameraState.recordings!!.add(
+                    videoCapture.output.prepareRecording(
                     activity!!, FileOutputOptions.Builder(File(paths[index]!!)).build()
                 ).apply { if (cameraState.enableAudioRecording && !ignoreAudio) withAudioEnabled() }
                     .start(cameraState.executor(activity!!), recordingListener))
@@ -546,12 +555,92 @@ class CameraAwesomeX : CameraInterface, FlutterPlugin, ActivityAware {
         }
     }
 
+    @SuppressLint("UnsafeOptInUsageError")
+    @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
     override fun getFrontSensors(): List<PigeonSensorTypeDevice> {
-        TODO("Not yet implemented")
+        val act = activity ?: return emptyList()
+        val provider = if (this::cameraState.isInitialized) cameraState.cameraProvider else getCameraProvider()
+        val frontCameras = provider.availableCameraInfos.filter {
+            val c2Info = Camera2CameraInfo.from(it)
+            c2Info.getPigeonPosition() == PigeonSensorPosition.FRONT
+        }
+
+        return frontCameras.map { camInfo ->
+            val c2Info = Camera2CameraInfo.from(camInfo)
+            val sType = c2Info.getSensorType()
+            PigeonSensorTypeDevice(
+                sensorType = if (sType == PigeonSensorType.UNKNOWN || sType == PigeonSensorType.WIDEANGLE) PigeonSensorType.TRUEDEPTH else sType,
+                name = "Front Camera ${c2Info.cameraId}",
+                iso = c2Info.getIso(),
+                flashAvailable = c2Info.hasFlash(),
+                uid = c2Info.cameraId
+            )
+        }
     }
 
+    @SuppressLint("UnsafeOptInUsageError")
+    @androidx.annotation.OptIn(ExperimentalCamera2Interop::class)
     override fun getBackSensors(): List<PigeonSensorTypeDevice> {
-        TODO("Not yet implemented")
+        val act = activity ?: return emptyList()
+        val provider = if (this::cameraState.isInitialized) cameraState.cameraProvider else getCameraProvider()
+        val backCameras = provider.availableCameraInfos.filter {
+            val c2Info = Camera2CameraInfo.from(it)
+            c2Info.getPigeonPosition() == PigeonSensorPosition.BACK
+        }
+
+        val sensorList = mutableListOf<PigeonSensorTypeDevice>()
+        for (camInfo in backCameras) {
+            val c2Info = Camera2CameraInfo.from(camInfo)
+            val sType = c2Info.getSensorType()
+            sensorList.add(
+                PigeonSensorTypeDevice(
+                    sensorType = sType,
+                    name = "Back Camera ${c2Info.cameraId} ($sType)",
+                    iso = c2Info.getIso(),
+                    flashAvailable = c2Info.hasFlash(),
+                    uid = c2Info.cameraId
+                )
+            )
+        }
+
+        // Check if we found a physical ULTRAWIDEANGLE
+        val hasUltraWide = sensorList.any { it.sensorType == PigeonSensorType.ULTRAWIDEANGLE }
+        if (!hasUltraWide) {
+            val mainBackCamera = backCameras.firstOrNull()
+            if (mainBackCamera != null) {
+                val c2Info = Camera2CameraInfo.from(mainBackCamera)
+                val minZoomFromRange = c2Info.getMinZoomRatio()
+                val minZoomFromState = mainBackCamera.zoomState.value?.minZoomRatio ?: 1.0f
+                if (minZoomFromRange < 0.99f || minZoomFromState < 0.99f) {
+                    sensorList.add(
+                        0,
+                        PigeonSensorTypeDevice(
+                            sensorType = PigeonSensorType.ULTRAWIDEANGLE,
+                            name = "Back Ultra Wide (Logical)",
+                            iso = c2Info.getIso(),
+                            flashAvailable = c2Info.hasFlash(),
+                            uid = "logical_ultrawide"
+                        )
+                    )
+                }
+            }
+        }
+
+        // Ensure we have at least one WIDEANGLE if any camera is present
+        if (sensorList.none { it.sensorType == PigeonSensorType.WIDEANGLE } && sensorList.isNotEmpty()) {
+            val wideIndex = sensorList.indexOfFirst { it.sensorType != PigeonSensorType.ULTRAWIDEANGLE }
+            val targetIndex = if (wideIndex >= 0) wideIndex else 0
+            val target = sensorList[targetIndex]
+            sensorList[targetIndex] = PigeonSensorTypeDevice(
+                sensorType = PigeonSensorType.WIDEANGLE,
+                name = target.name,
+                iso = target.iso,
+                flashAvailable = target.flashAvailable,
+                uid = target.uid
+            )
+        }
+
+        return sensorList
     }
 
     override fun pauseVideoRecording() {
@@ -613,6 +702,23 @@ class CameraAwesomeX : CameraInterface, FlutterPlugin, ActivityAware {
             this.aspectRatio = null
             this.rational = Rational(3, 4)
             updateLifecycle(activity!!)
+
+            val firstSensor = sensors.firstOrNull()
+            if (firstSensor?.deviceId == "logical_ultrawide" || firstSensor?.type == PigeonSensorType.ULTRAWIDEANGLE) {
+                Handler(Looper.getMainLooper()).post {
+                    cameraState.setZoom(0.0f)
+                }
+            } else if (firstSensor?.type == PigeonSensorType.WIDEANGLE) {
+                Handler(Looper.getMainLooper()).post {
+                    val zoomState = cameraState.previewCamera?.cameraInfo?.zoomState?.value
+                    if (zoomState != null && zoomState.minZoomRatio < 0.99f) {
+                        val min = zoomState.minZoomRatio
+                        val max = zoomState.maxZoomRatio
+                        val normalized1x = (1.0f - min) / (max - min)
+                        cameraState.setZoom(normalized1x)
+                    }
+                }
+            }
         }
     }
 
