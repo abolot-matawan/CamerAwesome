@@ -48,14 +48,14 @@ class AwesomeCameraGestureDetector extends StatefulWidget {
   final Widget child;
   final OnPreviewTapBuilder? onPreviewTapBuilder;
   final OnPreviewScale? onPreviewScale;
-  final double initialZoom;
+  final double Function()? initialZoom;
 
   const AwesomeCameraGestureDetector({
     super.key,
     required this.child,
     required this.onPreviewScale,
     this.onPreviewTapBuilder,
-    this.initialZoom = 0,
+    this.initialZoom,
   });
 
   @override
@@ -67,24 +67,17 @@ class AwesomeCameraGestureDetector extends StatefulWidget {
 class _AwesomeCameraGestureDetector
     extends State<AwesomeCameraGestureDetector> {
   double _zoomScale = 0;
-  final double _accuracy = 0.01;
   double? _lastScale;
 
   Offset? _tapPosition;
   Timer? _timer;
 
-  @override
-  void initState() {
-    _zoomScale = widget.initialZoom;
-    super.initState();
-  }
+  double get _currentZoom => widget.initialZoom?.call() ?? _zoomScale;
 
   @override
-  void didUpdateWidget(covariant AwesomeCameraGestureDetector oldWidget) {
-    if (oldWidget.initialZoom != widget.initialZoom) {
-      _zoomScale = widget.initialZoom;
-    }
-    super.didUpdateWidget(oldWidget);
+  void initState() {
+    _zoomScale = _currentZoom;
+    super.initState();
   }
 
   @override
@@ -97,22 +90,17 @@ class _AwesomeCameraGestureDetector
             () => ScaleGestureRecognizer()
               ..onStart = (_) {
                 _lastScale = null;
-                _zoomScale = widget.initialZoom;
+                _zoomScale = _currentZoom;
               }
               ..onUpdate = (ScaleUpdateDetails details) {
                 _lastScale ??= details.scale;
-                if (details.scale < (_lastScale! + 0.01) &&
-                    details.scale > (_lastScale! - 0.01)) {
+                final diff = details.scale - _lastScale!;
+                if (diff.abs() < 0.005) {
                   return;
-                } else if (_lastScale! < details.scale) {
-                  _zoomScale += _accuracy;
-                } else {
-                  _zoomScale -= _accuracy;
                 }
-
-                _zoomScale = _zoomScale.clamp(0, 1);
-                widget.onPreviewScale!.onScale(_zoomScale);
+                _zoomScale = (_zoomScale + diff * 0.3).clamp(0.0, 1.0);
                 _lastScale = details.scale;
+                widget.onPreviewScale!.onScale(_zoomScale);
               },
             (instance) {},
           ),

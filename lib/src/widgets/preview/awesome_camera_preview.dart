@@ -187,7 +187,7 @@ class AwesomeCameraPreviewState extends State<AwesomeCameraPreview> {
                               )
                             : null,
                     onPreviewScale: widget.onPreviewScale,
-                    initialZoom: widget.state.sensorConfig.zoom,
+                    initialZoom: () => widget.state.sensorConfig.zoom,
                     child: StreamBuilder<AwesomeFilter>(
                       //FIX performances
                       stream: widget.state.filter$,

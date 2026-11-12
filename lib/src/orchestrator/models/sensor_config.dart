@@ -179,6 +179,9 @@ class SensorConfig {
   /// Returns the current flash mode without stream
   FlashMode get flashMode => _flashModeController.value;
 
+  /// Returns the current sensor type without stream
+  SensorType get sensorType => _sensorTypeController.value;
+
   /// Switch the flash according to the previous state
   void switchCameraFlash() {
     final FlashMode newFlashMode;

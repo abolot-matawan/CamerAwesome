@@ -197,4 +197,75 @@ abstract class CameraState {
 
   AnalysisController? get analysisController =>
       cameraContext.analysisController;
+
+  /// Increments zoom by 0.1 or switches from ultra-wide (0.5x) to 1.0x optical zoom.
+  Future<void> stepZoomIn() async {
+    final currentZoom = sensorConfig.zoom;
+    final minZoom = await CamerawesomePlugin.getMinZoom() ?? 1.0;
+    final maxZoom = await CamerawesomePlugin.getMaxZoom() ?? 1.0;
+    final hasLogicalUltraWide = defaultTargetPlatform != TargetPlatform.iOS &&
+        minZoom > 0.0 &&
+        minZoom < 1.0 &&
+        maxZoom > minZoom;
+
+    if (hasLogicalUltraWide) {
+      final linear1x = (1.0 - minZoom) / (maxZoom - minZoom);
+      if (currentZoom < linear1x - 0.01) {
+        await sensorConfig.setZoom(linear1x);
+      } else {
+        await sensorConfig.setZoom((currentZoom + 0.1).clamp(0.0, 1.0));
+      }
+    } else {
+      final isUltraWide =
+          sensorConfig.sensors.firstOrNull?.type == SensorType.ultraWideAngle ||
+              sensorConfig.sensorType == SensorType.ultraWideAngle;
+      final sensors = await getSensors();
+      if (isUltraWide && sensors.wideAngle != null) {
+        setSensorType(0, SensorType.wideAngle, sensors.wideAngle!.uid);
+        await sensorConfig.setZoom(0.0);
+      } else {
+        await sensorConfig.setZoom((currentZoom + 0.1).clamp(0.0, 1.0));
+      }
+    }
+  }
+
+  /// Decrements zoom by 0.1 or switches down to ultra-wide (0.5x / minZoom).
+  Future<void> stepZoomOut() async {
+    final currentZoom = sensorConfig.zoom;
+    final minZoom = await CamerawesomePlugin.getMinZoom() ?? 1.0;
+    final maxZoom = await CamerawesomePlugin.getMaxZoom() ?? 1.0;
+    final hasLogicalUltraWide = defaultTargetPlatform != TargetPlatform.iOS &&
+        minZoom > 0.0 &&
+        minZoom < 1.0 &&
+        maxZoom > minZoom;
+
+    if (hasLogicalUltraWide) {
+      final linear1x = (1.0 - minZoom) / (maxZoom - minZoom);
+      if (currentZoom > linear1x + 0.02) {
+        await sensorConfig
+            .setZoom((currentZoom - 0.1).clamp(linear1x, 1.0));
+      } else {
+        await sensorConfig.setZoom(0.0);
+      }
+    } else {
+      final isBackCamera =
+          sensorConfig.sensors.firstOrNull?.position != SensorPosition.front;
+      final isUltraWide =
+          sensorConfig.sensors.firstOrNull?.type == SensorType.ultraWideAngle ||
+              sensorConfig.sensorType == SensorType.ultraWideAngle;
+      if (currentZoom > 0.05) {
+        await sensorConfig.setZoom((currentZoom - 0.1).clamp(0.0, 1.0));
+      } else if (isBackCamera && !isUltraWide) {
+        final sensors = await getSensors();
+        if (sensors.ultraWideAngle != null) {
+          setSensorType(
+            0,
+            SensorType.ultraWideAngle,
+            sensors.ultraWideAngle!.uid,
+          );
+          await sensorConfig.setZoom(0.0);
+        }
+      }
+    }
+  }
 }
