@@ -198,7 +198,7 @@ abstract class CameraState {
   AnalysisController? get analysisController =>
       cameraContext.analysisController;
 
-  /// Increments zoom by 0.1 or switches from ultra-wide (0.5x) to 1.0x optical zoom.
+  /// Increments zoom progressively or switches from ultra-wide (0.5x) to 1.0x optical zoom.
   Future<void> stepZoomIn() async {
     final currentZoom = sensorConfig.zoom;
     final minZoom = await CamerawesomePlugin.getMinZoom() ?? 1.0;
@@ -209,11 +209,15 @@ abstract class CameraState {
         maxZoom > minZoom;
 
     if (hasLogicalUltraWide) {
-      final linear1x = (1.0 - minZoom) / (maxZoom - minZoom);
-      if (currentZoom < linear1x - 0.01) {
-        await sensorConfig.setZoom(linear1x);
+      final currentRatio = minZoom + (maxZoom - minZoom) * currentZoom;
+      if (currentRatio < 0.95) {
+        // From ultra-wide (e.g. 0.5x) -> step directly to 1.0x
+        await sensorConfig.setZoomRatio(1.0);
       } else {
-        await sensorConfig.setZoom((currentZoom + 0.1).clamp(0.0, 1.0));
+        // Above 1.0x, step geometrically (multiplicative ~35% zoom increase per step)
+        // so that perceptual zoom change is constant and linear to the human eye.
+        final nextRatio = currentRatio < 1.05 ? 1.5 : (currentRatio * 1.35);
+        await sensorConfig.setZoomRatio(nextRatio);
       }
     } else {
       final isUltraWide =
@@ -229,7 +233,7 @@ abstract class CameraState {
     }
   }
 
-  /// Decrements zoom by 0.1 or switches down to ultra-wide (0.5x / minZoom).
+  /// Decrements zoom progressively or switches down to ultra-wide (0.5x / minZoom).
   Future<void> stepZoomOut() async {
     final currentZoom = sensorConfig.zoom;
     final minZoom = await CamerawesomePlugin.getMinZoom() ?? 1.0;
@@ -240,10 +244,18 @@ abstract class CameraState {
         maxZoom > minZoom;
 
     if (hasLogicalUltraWide) {
-      final linear1x = (1.0 - minZoom) / (maxZoom - minZoom);
-      if (currentZoom > linear1x + 0.02) {
-        await sensorConfig
-            .setZoom((currentZoom - 0.1).clamp(linear1x, 1.0));
+      final currentRatio = minZoom + (maxZoom - minZoom) * currentZoom;
+      if (currentRatio > 1.25) {
+        final nextRatio = currentRatio / 1.35;
+        if (nextRatio <= 1.15) {
+          // Snap cleanly to 1.0x optical zoom
+          await sensorConfig.setZoomRatio(1.0);
+        } else {
+          await sensorConfig.setZoomRatio(nextRatio);
+        }
+      } else if (currentRatio > 0.95) {
+        // From 1.0x -> step down to ultra-wide minZoom (0.5x)
+        await sensorConfig.setZoomRatio(minZoom);
       } else {
         await sensorConfig.setZoom(0.0);
       }
