@@ -132,7 +132,7 @@ abstract class CameraState {
       zoom: type == SensorType.ultraWideAngle ? 0.0 : previous.zoom,
     );
     cameraContext.setSensorConfig(next);
-    if (type == SensorType.wideAngle && Platform.isAndroid) {
+    if (type == SensorType.wideAngle) {
       next.setZoomToOneX();
     }
   }
@@ -203,10 +203,8 @@ abstract class CameraState {
     final currentZoom = sensorConfig.zoom;
     final minZoom = await CamerawesomePlugin.getMinZoom() ?? 1.0;
     final maxZoom = await CamerawesomePlugin.getMaxZoom() ?? 1.0;
-    final hasLogicalUltraWide = defaultTargetPlatform != TargetPlatform.iOS &&
-        minZoom > 0.0 &&
-        minZoom < 1.0 &&
-        maxZoom > minZoom;
+    final hasLogicalUltraWide =
+        minZoom > 0.0 && minZoom < 1.0 && maxZoom > minZoom;
 
     if (hasLogicalUltraWide) {
       final currentRatio = minZoom + (maxZoom - minZoom) * currentZoom;
@@ -238,10 +236,8 @@ abstract class CameraState {
     final currentZoom = sensorConfig.zoom;
     final minZoom = await CamerawesomePlugin.getMinZoom() ?? 1.0;
     final maxZoom = await CamerawesomePlugin.getMaxZoom() ?? 1.0;
-    final hasLogicalUltraWide = defaultTargetPlatform != TargetPlatform.iOS &&
-        minZoom > 0.0 &&
-        minZoom < 1.0 &&
-        maxZoom > minZoom;
+    final hasLogicalUltraWide =
+        minZoom > 0.0 && minZoom < 1.0 && maxZoom > minZoom;
 
     if (hasLogicalUltraWide) {
       final currentRatio = minZoom + (maxZoom - minZoom) * currentZoom;

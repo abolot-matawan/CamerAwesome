@@ -97,7 +97,7 @@ class SensorConfig {
     if (!_zoomController.isClosed) {
       _zoomController.sink.add(zoom);
     }
-    if (Platform.isAndroid && !_sensorTypeController.isClosed) {
+    if (!_sensorTypeController.isClosed) {
       final minZoom = await CamerawesomePlugin.getMinZoom();
       final maxZoom = await CamerawesomePlugin.getMaxZoom();
       if (minZoom != null && maxZoom != null && maxZoom > minZoom) {
@@ -146,13 +146,12 @@ class SensorConfig {
   /// Returns the current zoom without stream
   double get zoom => _zoomController.value;
 
-  /// Resets zoom to 1.0x optical zoom on Android.
+  /// Resets zoom to 1.0x optical zoom when an ultra-wide sensor is present.
   /// Calculates the normalized linear zoom value that maps to 1.0x
   /// based on the camera's min/max zoom ratios.
   /// If [onlyIfUnset] is true, only resets when zoom is still at 0.0
   /// (used for initial startup).
   Future<void> setZoomToOneX({bool onlyIfUnset = false}) async {
-    if (!Platform.isAndroid) return;
     if (onlyIfUnset && zoom != 0.0) return;
     final minZoom = await CamerawesomePlugin.getMinZoom();
     final maxZoom = await CamerawesomePlugin.getMaxZoom();

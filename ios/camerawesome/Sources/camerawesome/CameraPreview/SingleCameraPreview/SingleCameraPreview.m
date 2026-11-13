@@ -236,11 +236,50 @@
   return _currentPreviewSize;
 }
 
+- (CGFloat)baseZoomFactor1x {
+  if (@available(iOS 13.0, *)) {
+    if (_captureDevice.deviceType == AVCaptureDeviceTypeBuiltInTripleCamera ||
+        _captureDevice.deviceType == AVCaptureDeviceTypeBuiltInDualWideCamera) {
+      NSArray<NSNumber *> *switchFactors = _captureDevice.virtualDeviceSwitchOverVideoZoomFactors;
+      if (switchFactors.count > 0) {
+        return [switchFactors.firstObject floatValue];
+      }
+      return 2.0f;
+    }
+  }
+  return 1.0f;
+}
+
+- (CGFloat)getMinZoom {
+  CGFloat base1x = [self baseZoomFactor1x];
+  CGFloat minFactor = 1.0f;
+  if (@available(iOS 11.0, *)) {
+    minFactor = _captureDevice.minAvailableVideoZoomFactor;
+  }
+  if (minFactor <= 0.0f) {
+    minFactor = 1.0f;
+  }
+  return minFactor / base1x;
+}
+
 // Get max zoom level
 - (CGFloat)getMaxZoom {
-  CGFloat maxZoom = _captureDevice.activeFormat.videoMaxZoomFactor;
+  CGFloat base1x = [self baseZoomFactor1x];
+  CGFloat maxFactor = _captureDevice.activeFormat.videoMaxZoomFactor;
+  if (@available(iOS 11.0, *)) {
+    CGFloat maxAvailable = _captureDevice.maxAvailableVideoZoomFactor;
+    if (maxAvailable > 0.0f) {
+      maxFactor = maxAvailable;
+    }
+  }
+  if (maxFactor <= 0.0f) {
+    maxFactor = 1.0f;
+  }
   // Not sure why on iPhone 14 Pro, zoom at 90 not working, so let's block to 50 which is very high
-  return maxZoom > 50.0 ? 50.0 : maxZoom;
+  if (maxFactor > 50.0f) {
+    maxFactor = 50.0f;
+  }
+  return maxFactor / base1x;
 }
 
 /// Dispose camera inputs & outputs
@@ -338,12 +377,32 @@
 
 /// Set zoom level
 - (void)setZoom:(float)value error:(FlutterError * _Nullable __autoreleasing * _Nonnull)error {
+  CGFloat minZoom = [self getMinZoom];
   CGFloat maxZoom = [self getMaxZoom];
-  CGFloat scaledZoom = value * (maxZoom - 1.0f) + 1.0f;
+  CGFloat base1x = [self baseZoomFactor1x];
+  
+  CGFloat opticalRatio = minZoom + (maxZoom - minZoom) * value;
+  CGFloat nativeZoomFactor = opticalRatio * base1x;
+  
+  CGFloat minAvailable = 1.0f;
+  CGFloat maxAvailable = _captureDevice.activeFormat.videoMaxZoomFactor;
+  if (@available(iOS 11.0, *)) {
+    if (_captureDevice.minAvailableVideoZoomFactor > 0.0f) {
+      minAvailable = _captureDevice.minAvailableVideoZoomFactor;
+    }
+    if (_captureDevice.maxAvailableVideoZoomFactor > 0.0f) {
+      maxAvailable = _captureDevice.maxAvailableVideoZoomFactor;
+    }
+  }
+  if (maxAvailable > 50.0f) {
+    maxAvailable = 50.0f;
+  }
+  
+  nativeZoomFactor = MAX(minAvailable, MIN(maxAvailable, nativeZoomFactor));
   
   NSError *zoomError;
   if ([_captureDevice lockForConfiguration:&zoomError]) {
-    _captureDevice.videoZoomFactor = scaledZoom;
+    _captureDevice.videoZoomFactor = nativeZoomFactor;
     [_captureDevice unlockForConfiguration];
   } else {
     *error = [FlutterError errorWithCode:@"ZOOM_NOT_SET" message:@"can't set the zoom value" details:[zoomError localizedDescription]];
@@ -452,18 +511,23 @@
     return _captureDeviceId;
   }
   
-  // TODO: add dual & triple camera
-  NSArray<AVCaptureDevice *> *devices = [[NSArray alloc] init];
-  AVCaptureDeviceDiscoverySession *discoverySession = [AVCaptureDeviceDiscoverySession
-                                                       discoverySessionWithDeviceTypes:@[ AVCaptureDeviceTypeBuiltInWideAngleCamera, ]
-                                                       mediaType:AVMediaTypeVideo
-                                                       position:AVCaptureDevicePositionUnspecified];
-  devices = discoverySession.devices;
+  NSInteger cameraPosition = (sensor == PigeonSensorPositionFront) ? AVCaptureDevicePositionFront : AVCaptureDevicePositionBack;
   
-  NSInteger cameraType = (sensor == PigeonSensorPositionFront) ? AVCaptureDevicePositionFront : AVCaptureDevicePositionBack;
-  for (AVCaptureDevice *device in devices) {
-    if ([device position] == cameraType) {
-      return [device uniqueID];
+  NSMutableArray<AVCaptureDeviceType> *deviceTypes = [NSMutableArray array];
+  if (@available(iOS 13.0, *)) {
+    [deviceTypes addObject:AVCaptureDeviceTypeBuiltInTripleCamera];
+    [deviceTypes addObject:AVCaptureDeviceTypeBuiltInDualWideCamera];
+    [deviceTypes addObject:AVCaptureDeviceTypeBuiltInDualCamera];
+  }
+  [deviceTypes addObject:AVCaptureDeviceTypeBuiltInWideAngleCamera];
+  
+  for (AVCaptureDeviceType deviceType in deviceTypes) {
+    AVCaptureDeviceDiscoverySession *discoverySession = [AVCaptureDeviceDiscoverySession
+                                                         discoverySessionWithDeviceTypes:@[deviceType]
+                                                         mediaType:AVMediaTypeVideo
+                                                         position:cameraPosition];
+    if (discoverySession.devices.count > 0) {
+      return discoverySession.devices.firstObject.uniqueID;
     }
   }
   return nil;
