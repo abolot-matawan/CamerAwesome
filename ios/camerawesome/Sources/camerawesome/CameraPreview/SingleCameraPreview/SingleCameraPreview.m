@@ -77,7 +77,13 @@
 }
 
 - (void)setAspectRatio:(AspectRatio)ratio {
+  if (_aspectRatio == ratio) {
+    return;
+  }
   _aspectRatio = ratio;
+  if (!_videoController.isRecording) {
+    [self setBestPreviewQuality];
+  }
 }
 
 /// Set image stream Flutter sink
@@ -209,7 +215,13 @@
   // else: Use the non-zero currentPreviewSize passed in.
 
   NSString *presetSelected;
-  if (!CGSizeEqualToSize(CGSizeZero, targetSize)) {
+  if (_captureMode != Video &&
+      !_videoController.isRecording &&
+      !_imageStreamController.streamImages &&
+      (_aspectRatio == Ratio4_3 || _aspectRatio == Ratio1_1) &&
+      [_captureSession canSetSessionPreset:AVCaptureSessionPresetPhoto]) {
+    presetSelected = AVCaptureSessionPresetPhoto;
+  } else if (!CGSizeEqualToSize(CGSizeZero, targetSize)) {
     // Try to get the quality requested based on the determined target size
     presetSelected = [CameraQualities selectVideoCapturePreset:targetSize session:_captureSession device:_captureDevice];
   } else {
@@ -219,14 +231,25 @@
 
   // Check if the preset needs to be changed
   if (![_captureSession.sessionPreset isEqualToString:presetSelected]) {
-      [_captureSession setSessionPreset:presetSelected];
-      _currentPreset = presetSelected;
+    [_captureSession beginConfiguration];
+    [_captureSession setSessionPreset:presetSelected];
+    [_captureSession commitConfiguration];
+    _currentPreset = presetSelected;
   } else {
-      _currentPreset = _captureSession.sessionPreset;
+    _currentPreset = _captureSession.sessionPreset;
   }
 
-  // Use the corrected method name
-  _currentPreviewSize = [CameraQualities getSizeForPreset:_currentPreset];
+  if ([_currentPreset isEqualToString:AVCaptureSessionPresetPhoto]) {
+    CMVideoDimensions dims = CMVideoFormatDescriptionGetDimensions(_captureDevice.activeFormat.formatDescription);
+    if (dims.width > 0 && dims.height > 0) {
+      _currentPreviewSize = CGSizeMake(dims.width, dims.height);
+    } else {
+      _currentPreviewSize = CGSizeMake(1440, 1080);
+    }
+  } else {
+    // Use the corrected method name
+    _currentPreviewSize = [CameraQualities getSizeForPreset:_currentPreset];
+  }
 
   [_videoController setPreviewSize:_currentPreviewSize];
 }
@@ -540,12 +563,17 @@
     return;
   }
   
+  BOOL modeChanged = (_captureMode != captureMode);
   _captureMode = captureMode;
   
   if (captureMode == Video) {
     [self setUpCaptureSessionForAudioError:^(NSError *audioError) {
       *error = [FlutterError errorWithCode:@"VIDEO_ERROR" message:@"error when trying to setup audio" details:[audioError localizedDescription]];
     }];
+  }
+
+  if (modeChanged) {
+    [self setBestPreviewQuality];
   }
 }
 

@@ -136,6 +136,25 @@ class AwesomeCameraPreviewState extends State<AwesomeCameraPreview> {
   }
 
   @override
+  void didUpdateWidget(covariant AwesomeCameraPreview oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.state.captureMode != oldWidget.state.captureMode) {
+      _refreshPreviewSize();
+    }
+  }
+
+  Future<void> _refreshPreviewSize() async {
+    final previewSize = await widget.state.previewSize(0);
+    if (mounted &&
+        (_previewSize?.width != previewSize.width ||
+            _previewSize?.height != previewSize.height)) {
+      setState(() {
+        _previewSize = previewSize;
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _sensorConfigSubscription?.cancel();
     _aspectRatioSubscription?.cancel();

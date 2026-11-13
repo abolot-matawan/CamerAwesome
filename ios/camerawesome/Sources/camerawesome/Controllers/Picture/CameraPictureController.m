@@ -169,8 +169,13 @@ previewPhotoSampleBuffer:(CMSampleBufferRef)previewPhotoSampleBuffer
       cropRect = CGRectMake(0, 0, image.size.height, image.size.width);
     } else {
       if (_aspectRatioType == Ratio4_3) {
-        double localX = imageHeightDivided - (imageHeightDivided / _aspectRatio);
-        cropRect = CGRectMake(localX, 0, image.size.height / _aspectRatio, image.size.width);
+        double rawAspect = image.size.height / image.size.width;
+        if (fabs(rawAspect - _aspectRatio) < 0.05) {
+          cropRect = CGRectMake(0, 0, image.size.height, image.size.width);
+        } else {
+          double localX = imageHeightDivided - (imageHeightDivided / _aspectRatio);
+          cropRect = CGRectMake(localX, 0, image.size.height / _aspectRatio, image.size.width);
+        }
       } else {
         cropRect = CGRectMake(y, x, newCropWidth, newCropHeight);
       }
